@@ -3,6 +3,7 @@
 
 # ignore the ECLIPSE project file
 .project
+.pydevproject
 
 # ignore compilation products
 *.mod
@@ -10,5 +11,13 @@
 *.a
 *.pyc
 
+/camb
+/eftstability
+/fort.*
+/eftprofile
+/eftbenchmark
+/*.out
+
 # ignore profiler output
 *gmon.out
+

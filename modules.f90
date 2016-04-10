@@ -230,6 +230,34 @@
         real(dl)  :: Nu_mass_fractions(max_nu) !The ratios of the total densities
         integer   :: Nu_mass_numbers(max_nu) !physical number per eigenstate
 
+
+        ! EFTCAMB MOD START
+        ! 1) Definition of flags:
+        integer :: EFTflag
+        integer :: EFTwDE
+        integer :: PureEFTmodelOmega
+        integer :: PureEFTmodelGamma1, PureEFTmodelGamma2, PureEFTmodelGamma3
+        integer :: PureEFTmodelGamma4, PureEFTmodelGamma5, PureEFTmodelGamma6
+        integer :: DesignerEFTmodel
+        integer :: AltParEFTmodel
+        integer :: FullMappingEFTmodel
+        logical :: PureEFTHorndeski
+        integer :: RPHmassPmodel, RPHkineticitymodel, RPHbraidingmodel, RPHtensormodel
+        logical :: HoravaSolarSystem
+        ! 2) Definition of stability flags:
+        logical :: EFT_mathematical_stability, EFT_physical_stability, EFTAdditionalPriors, MinkowskyPriors
+        ! 3) Definition of model parameters:
+        real(dl) :: EFTw0, EFTwa, EFTwn, EFTwat, EFtw2, EFTw3
+        real(dl) :: EFTOmega0, EFTOmegaExp
+        real(dl) :: EFTGamma10, EFTGamma1Exp, EFTGamma20, EFTGamma2Exp
+        real(dl) :: EFTGamma30, EFTGamma3Exp, EFTGamma40, EFTGamma4Exp
+        real(dl) :: EFTGamma50, EFTGamma5Exp, EFTGamma60, EFTGamma6Exp
+        real(dl) :: EFTB0
+        real(dl) :: RPHmassP0, RPHmassPexp, RPHkineticity0, RPHkineticityexp
+        real(dl) :: RPHbraiding0, RPHbraidingexp, RPHtensor0, RPHtensorexp
+        real(dl) :: Horava_xi, Horava_lambda, Horava_eta
+        ! EFTCAMB MOD END
+        
         integer   :: Scalar_initial_condition
         !must be one of the initial_xxx values defined in GaugeInterface
 
@@ -1585,7 +1613,11 @@
 
     real(dl) dlnam
 
-    real(dl), dimension(:), allocatable ::  r1,p1,dr1,dp1,ddr1
+    ! EFTCAMB MOD START: compatibility with massive neutrinos           
+    real(dl), dimension(:), allocatable ::  r1,p1,dr1,dp1,ddr1, ddp1, dddp1
+    ! Original code:
+    ! real(dl), dimension(:), allocatable ::  r1,p1,dr1,dp1,ddr1
+    ! EFTCAMB MOD END.
 
     !Sample for massive neutrino momentum
     !These settings appear to be OK for P_k accuate at 1e-3 level
@@ -1594,8 +1626,14 @@
 
     integer nqmax !actual number of q modes evolves
 
+    ! EFTCAMB MOD START: compatibility with massive neutrinos           
     public const,Nu_Init,Nu_background, Nu_rho, Nu_drho,  nqmax0, nqmax, &
-        nu_int_kernel, nu_q
+        nu_int_kernel, nu_q, Nu_pidot, Nu_pidotdot
+    ! Original code:
+    ! public const,Nu_Init,Nu_background, Nu_rho, Nu_drho,  nqmax0, nqmax, &
+    ! nu_int_kernel, nu_q
+    ! EFTCAMB MOD END.
+
     contains
     !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
@@ -1620,8 +1658,12 @@
     end do
 
     if (allocated(r1)) return
-    allocate(r1(nrhopn),p1(nrhopn),dr1(nrhopn),dp1(nrhopn),ddr1(nrhopn))
 
+        ! EFTCAMB MOD START: compatibility with massive neutrinos               
+        allocate(r1(nrhopn),p1(nrhopn),dr1(nrhopn),dp1(nrhopn),ddr1(nrhopn),ddp1(nrhopn),dddp1(nrhopn))
+        ! Original code:
+        ! allocate(r1(nrhopn),p1(nrhopn),dr1(nrhopn),dp1(nrhopn),ddr1(nrhopn))
+        ! EFTCAMB MOD END.
 
     nqmax=3
     if (AccuracyBoost >1) nqmax=4
@@ -1677,6 +1719,10 @@
     call splder(p1,dp1,nrhopn,spline_data)
     call splder(dr1,ddr1,nrhopn,spline_data)
 
+        ! EFTCAMB MOD START: compatibility with massive neutrinos       
+        call splder(dp1,ddp1,nrhopn,spline_data)
+        call splder(ddp1,dddp1,nrhopn,spline_data)
+        ! EFTCAMB MOD END.
 
     end subroutine Nu_init
 
@@ -1817,6 +1863,62 @@
     end if
 
     end function Nu_drho
+
+    ! EFTCAMB MOD START: compatibility with massive neutrinos       
+    function Nu_pidot(am,adotoa,presnu) result (presnudot)
+        use precision
+        use ModelParams
+
+        real(dl) adotoa,presnu,presnudot
+        real(dl) d
+        real(dl), intent(IN) :: am
+        integer i
+
+        if (am< am_minp) then
+            presnudot = -2*const2*am**2*adotoa/3._dl
+        else if (am>am_maxp) then
+            presnudot = -((15._dl*(4._dl*am**2*zeta5 -189._dl*Zeta7))/(8._dl*am**3*const))*adotoa
+        else
+            d=log(am/am_min)/dlnam+1._dl
+            i=int(d)
+            d=d-i
+
+            presnudot = dp1(i)+d*(ddp1(i)+d*(3._dl*(dp1(i+1)-dp1(i))-2._dl*ddp1(i) &
+                -ddp1(i+1)+d*(ddp1(i)+ddp1(i+1)+2._dl*(dp1(i)-dp1(i+1)))))
+
+            presnudot=presnu*adotoa*presnudot/dlnam
+        end if
+
+    end function Nu_pidot
+
+    function Nu_pidotdot(am,adotoa,Hdot,presnu,presnudot) result (presnudotdot)
+        use precision
+        use ModelParams
+
+        real(dl) adotoa,Hdot,presnu,presnudot,presnudotdot
+        real(dl) d
+        real(dl), intent(in) :: am
+        integer i
+
+        if (am< am_minp) then
+            presnudotdot = presnudot*(adotoa +Hdot/adotoa) +am**2*adotoa**2*(-2._dl*const2/3._dl)
+        else if (am>am_maxp) then
+            presnudotdot = presnudot*(adotoa +Hdot/adotoa) +am**2*adotoa**2*(&
+                &-((15._dl*zeta5)/(am**3*const)) + (15._dl*(4._dl*am**2*zeta5 -189._dl*Zeta7))/(2._dl*am**5*const))
+        else
+
+            d=log(am/am_min)/dlnam+1._dl
+            i=int(d)
+            d=d-i
+
+            presnudotdot = ddp1(i)+d*(dddp1(i)+d*(3._dl*(ddp1(i+1)-ddp1(i))-2._dl*dddp1(i) &
+                -dddp1(i+1)+d*(dddp1(i)+dddp1(i+1)+2._dl*(ddp1(i)-ddp1(i+1)))))
+
+            presnudotdot = +adotoa**2*presnu*presnudotdot/dlnam +Hdot/adotoa*presnudot +presnudot**2/presnu
+        end if
+
+    end function Nu_pidotdot
+    ! EFTCAMB MOD END.
 
     end module MassiveNu
 
